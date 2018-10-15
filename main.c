@@ -13,7 +13,7 @@ void catch_function()
     exit(EXIT_FAILURE);
 }
 
-int main()
+int main(int argc, char** argv)
 {
     // A way to throw an exception in C
     if (signal(SIGUSR1, catch_function) == SIG_ERR) {
@@ -21,10 +21,17 @@ int main()
         return EXIT_FAILURE;
     }
 
-    initFileStorage();
+    if (argc != 2)
+    {
+        fputs("Wrong arguments", stderr);
+        return EXIT_FAILURE;
+    }
+
+    initFileStorage(argv[1]);
     createFs(1 << 17);
 
-    char command[1 << 20];
+    char command[1 << 10];
+    char contents[1 << 20];
     char** strings = malloc(sizeof(char*) * 51);
     for (int i = 0; i < 51; ++i)
     {
@@ -34,7 +41,7 @@ int main()
     while (true)
     {
         assert(scanf("%s", command));
-        if (strcmp(command, "quit") == 0)
+        if (strcmp(command, "quit") == 0 || strcmp(command, "exit") == 0)
         {
             break;
         }
@@ -54,14 +61,31 @@ int main()
             assert(scanf("%s", command));
             mkdir(command);
         }
-        else if (strcmp(command, "touch") == 0)
+        else if (strcmp(command, "set_file_contents") == 0)
         {
-            //
+            assert(scanf("%s %s", command, contents));
+            setFileContents(command, contents);
+        }
+        else if (strcmp(command, "cat") == 0)
+        {
+            assert(scanf("%s", command));
+            cat(command, contents);
+            printf("%s\n", contents);
         }
         else if (strcmp(command, "rm") == 0)
         {
-            raise(SIGUSR1);
-            //
+            assert(scanf("%s", command));
+            rm(command);
+        }
+        else if (strcmp(command, "rmdir") == 0)
+        {
+            assert(scanf("%s", command));
+            rmdir(command);
+        }
+        else
+        {
+            fprintf(stderr, "Unknown command %s\n", command);
+            return EXIT_FAILURE;
         }
     }
 

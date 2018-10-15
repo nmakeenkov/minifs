@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #define NAME_MAX_LENGTH 14
+#define BLOCKS_COUNT 12
 
 enum TypeEnum
 {
@@ -20,7 +21,7 @@ struct INode
     uint32_t size;
     uint16_t linkCounter;
     // TODO(nmakeenkov): Also add indirect blocks
-    uint16_t blocks[12];
+    uint16_t blocks[BLOCKS_COUNT];
 };
 
 struct FileListEntry
