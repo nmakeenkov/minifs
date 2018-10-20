@@ -24,7 +24,7 @@ void tearDownFileStorage();
 
 void createFs(int maxSize);
 
-void ls(const char* directory, size_t maxFileCount, char** dest);
+void ls(const char* directory, size_t maxFileCount, char dest[][NAME_MAX_LENGTH]);
 
 void mkdir(const char* path);
 
@@ -35,3 +35,5 @@ void cat(const char* path, char* dest);
 void rm(const char* path);
 
 void rmdir(const char* path);
+
+void ln(const char* target, const char* link);

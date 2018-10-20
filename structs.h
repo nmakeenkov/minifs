@@ -1,4 +1,5 @@
 #pragma once
+#include <assert.h>
 #include <stdint.h>
 
 #define NAME_MAX_LENGTH 14

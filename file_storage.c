@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 
-static const size_t BLOCK_SIZE = 1 << 10;
+#define BLOCK_SIZE ((size_t) 1 << 10)
 static const int32_t MAGIC_NUMBER = 1337;
 
 struct FileStorage* fileStorage;
@@ -19,10 +19,10 @@ struct FileReader
     uint32_t pos;
 };
 
+
 void initFileStorage(const char* fileName)
 {
-    // Should be static_assert, but there are only hacky(IMHO) ways to do that in C
-    assert(sizeof(struct SuperBlock) < BLOCK_SIZE);
+    static_assert(sizeof(struct SuperBlock) < BLOCK_SIZE, "Super block should fit in regular block");
 
     fileStorage = malloc(sizeof(*fileStorage));
     fileStorage->fileRead = fopen(fileName, "rb");
@@ -93,7 +93,6 @@ struct INode getINode(uint16_t id)
     fflush(fileStorage->fileRead);
     fseek(fileStorage->fileRead, BLOCK_SIZE + id * sizeof(struct INode), SEEK_SET);
     assert(fread(&iNode, sizeof(iNode), 1, fileStorage->fileRead) == 1);
-    fprintf(stderr, "node %d:: %d %d %d\n", id, iNode.type, iNode.size, iNode.linkCounter);
     return iNode;
 }
 
@@ -289,7 +288,7 @@ uint16_t getDirectoryNode(const char* directory, bool create, struct INode* iNod
     return iNodeId;
 }
 
-void ls(const char* directory, size_t maxFileCount, char** dest)
+void ls(const char* directory, size_t maxFileCount, char dest[][NAME_MAX_LENGTH])
 {
     struct FileReader fileReader;
     struct INode iNode;
@@ -326,7 +325,7 @@ uint16_t getFileNodeId(const char* path, const char* contents)
     struct INode iNode;
     uint16_t iNodeId = getDirectoryNode(directory, contents != NULL, &iNode);
     free(directory);
-    char* name = malloc(sizeof(char) * (pathLength - i));
+    char name[NAME_MAX_LENGTH];
     memcpy(name, path + i + 1, pathLength - i - 1);
     name[pathLength - i - 1] = '\0';
 
@@ -377,7 +376,6 @@ uint16_t getFileNodeId(const char* path, const char* contents)
         newINode.size = strlen(contents) + 1; // null-termination
         resetINode(fileNodeId, &newINode, contents);
     }
-    free(name);
 
     return fileNodeId;
 }
@@ -408,7 +406,7 @@ void rmImpl(const char* path, Type type)
     struct INode iNode;
     uint16_t iNodeId = getDirectoryNode(directory, false, &iNode);
     free(directory);
-    char* name = malloc(sizeof(char) * (pathLength - i));
+    char name[NAME_MAX_LENGTH];
     memcpy(name, path + i + 1, pathLength - i - 1);
     name[pathLength - i - 1] = '\0';
 
@@ -420,12 +418,14 @@ void rmImpl(const char* path, Type type)
     assert(readFromFile(&fileReader, &len, sizeof(len)) == sizeof(len));
     uint16_t fileNodeId = 0;
     struct FileListEntry fileListEntry;
+    uint16_t entryIndexToDelete = len;
     for (uint16_t t = 0; t < len; ++t)
     {
         assert(readFromFile(&fileReader, &fileListEntry, sizeof(fileListEntry)) == sizeof(fileListEntry));
         if (strcmp(fileListEntry.name, name) == 0)
         {
             fileNodeId = fileListEntry.iNodeId;
+            entryIndexToDelete = t;
         }
     }
 
@@ -445,21 +445,28 @@ void rmImpl(const char* path, Type type)
         {
             raise(SIGUSR1);
         }
-        for (size_t blockNum = 0; blockNum * BLOCK_SIZE < iNodeToRemove.size; ++blockNum)
+        if (--iNodeToRemove.linkCounter > 0)
         {
-            freeBlock(iNodeToRemove.blocks[blockNum]);
+            setINode(fileNodeId, &iNodeToRemove);
         }
-        freeINode(fileNodeId);
+        else
+        {
+            for (size_t blockNum = 0; blockNum * BLOCK_SIZE < iNodeToRemove.size; ++blockNum)
+            {
+                freeBlock(iNodeToRemove.blocks[blockNum]);
+            }
+            freeINode(fileNodeId);
+        }
 
-        void* buff = malloc(sizeof(uint16_t) + len * sizeof(struct FileListEntry));
+        void *buff = malloc(sizeof(uint16_t) + len * sizeof(struct FileListEntry));
         --len;
         memcpy(buff, &len, sizeof(uint16_t));
-        void* buffPtr = buff + sizeof(uint16_t);
+        void *buffPtr = buff + sizeof(uint16_t);
         fileReader.pos = sizeof(uint16_t);
-        for (size_t i = 0; i <= len; ++i)
+        for (uint16_t t = 0; t <= len; ++t)
         {
             readFromFile(&fileReader, &fileListEntry, sizeof(struct FileListEntry));
-            if (strcmp(fileListEntry.name, name) != 0)
+            if (t != entryIndexToDelete)
             {
                 memcpy(buffPtr, &fileListEntry, sizeof(struct FileListEntry));
                 buffPtr += sizeof(struct FileListEntry);
@@ -469,7 +476,6 @@ void rmImpl(const char* path, Type type)
         resetINode(iNodeId, &iNode, buff);
         free(buff);
     }
-    free(name);
 }
 
 void rm(const char* path)
@@ -484,4 +490,57 @@ void rmdir(const char* path)
         raise(SIGUSR1);
     }
     rmImpl(path, DIRECTORY_);
+}
+
+void ln(const char* target, const char* link)
+{
+    uint16_t targetNodeId = getFileNodeId(target, NULL);
+    struct INode targetNode = getINode(targetNodeId);
+    ++targetNode.linkCounter;
+    setINode(targetNodeId, &targetNode);
+
+    size_t pathLength = strlen(link);
+    if (link[pathLength - 1] == '/')
+    {
+        --pathLength;
+    }
+    size_t i = pathLength;
+    while (--i > 0 && link[i] != '/');
+    char *directory = malloc(sizeof(char) * (i + 2));
+    memcpy(directory, link, sizeof(char) * (i + 1));
+    directory[i + 1] = '\0';
+    struct INode iNode;
+    uint16_t iNodeId = getDirectoryNode(directory, true, &iNode);
+    free(directory);
+    char name[NAME_MAX_LENGTH];
+    memcpy(name, link + i + 1, pathLength - i - 1);
+    name[pathLength - i - 1] = '\0';
+
+    struct FileReader fileReader;
+    fileReader.iNode = &iNode;
+    fileReader.pos = 0;
+
+    uint16_t len;
+    assert(readFromFile(&fileReader, &len, sizeof(len)) == sizeof(len));
+    struct FileListEntry fileListEntry;
+    for (uint16_t t = 0; t < len; ++t)
+    {
+        assert(readFromFile(&fileReader, &fileListEntry, sizeof(fileListEntry)) == sizeof(fileListEntry));
+        if (strcmp(fileListEntry.name, name) == 0)
+        {
+            raise(SIGUSR1);
+        }
+    }
+
+    void *buff = malloc(sizeof(uint16_t) + (len + 1) * sizeof(struct FileListEntry));
+    ++len;
+    memcpy(buff, &len, sizeof(uint16_t));
+    fileReader.pos = sizeof(uint16_t);
+    readFromFile(&fileReader, buff + sizeof(uint16_t), (len - 1) * sizeof(struct FileListEntry));
+    strcpy(fileListEntry.name, name);
+    fileListEntry.iNodeId = targetNodeId;
+    memcpy(buff + sizeof(uint16_t) + (len - 1) * sizeof(struct FileListEntry), &fileListEntry, sizeof(fileListEntry));
+    iNode.size += sizeof(struct FileListEntry);
+    resetINode(iNodeId, &iNode, buff);
+    free(buff);
 }

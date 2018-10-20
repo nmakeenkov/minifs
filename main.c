@@ -6,10 +6,10 @@
 #include <stdlib.h>
 #include <assert.h>
 
-
 void catch_function()
 {
     printf("An error occurred\n");
+    tearDownFileStorage();
     exit(EXIT_FAILURE);
 }
 
@@ -32,12 +32,6 @@ int main(int argc, char** argv)
 
     char command[1 << 10];
     char contents[1 << 20];
-    char** strings = malloc(sizeof(char*) * 51);
-    for (int i = 0; i < 51; ++i)
-    {
-        strings[i] = malloc(1 << 10);
-        strings[i][0] = '\0';
-    }
     while (true)
     {
         assert(scanf("%s", command));
@@ -48,6 +42,7 @@ int main(int argc, char** argv)
         else if (strcmp(command, "ls") == 0)
         {
             assert(scanf("%s", command));
+            char strings[51][NAME_MAX_LENGTH];
             ls(command, 50, strings);
             int i = -1;
             while (strcmp(strings[++i], "") != 0)
@@ -82,18 +77,19 @@ int main(int argc, char** argv)
             assert(scanf("%s", command));
             rmdir(command);
         }
+        else if (strcmp(command, "ln") == 0)
+        {
+            assert(scanf("%s", command));
+            assert(scanf("%s", contents));
+            ln(command, contents);
+        }
         else
         {
             fprintf(stderr, "Unknown command %s\n", command);
-            return EXIT_FAILURE;
+            continue;
         }
     }
 
-    for (int i = 0; i < 51; ++i)
-    {
-        free(strings[i]);
-    }
-    free(strings);
     tearDownFileStorage();
     return EXIT_SUCCESS;
 }
